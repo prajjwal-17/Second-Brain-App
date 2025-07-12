@@ -3,6 +3,13 @@ import jwt from 'jsonwebtoken'
 import {z} from 'zod'
 import bcrypt from 'bcryptjs'
 import { UserModel } from "./db";
+import { generateToken } from './lib/utils';
+import dotenv from 'dotenv';
+
+
+
+dotenv.config();
+
 
 const app = express();
 app.use(express.json());
@@ -27,7 +34,7 @@ app.post("/api/v1/signup", async (req: Request, res: Response) => {
     const parsedBody = requiredBody.safeParse(req.body);
     
     if (!parsedBody.success) {
-        res.status(400).json({
+        res.status(411).json({
             message: "Validation failed",
             errors: parsedBody.error.issues
         });
@@ -40,17 +47,21 @@ app.post("/api/v1/signup", async (req: Request, res: Response) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        await UserModel.create({
+        const newUser = await UserModel.create({
             email: username,
             password: hashedPassword
         });
 
-        res.json({ message: "User Signed Up" });
+        const token = generateToken(newUser._id.toString(), res);
+        res.status(200).json({ 
+            message: "User Signed Up",
+            token: token 
+        });
 
     } catch (err: any) {
         console.error(err);
         if (err.code === 11000) {
-            res.status(409).json({
+            res.status(403).json({
                 message: "User already exists"
             });
             return;
@@ -60,8 +71,39 @@ app.post("/api/v1/signup", async (req: Request, res: Response) => {
     }
 });
 
-app.post("/api/v1/signin", async (req, res) => {
-   
+app.post("/api/v1/signin", async (req : Request, res : Response) => {
+   const {username , password} = req.body
+   try{
+    const user = await UserModel.findOne({email: username})
+    if(!user){
+        res.status(400).json({message : "Invalid Credentials"})
+        return ;
+    }
+    
+    // Check if user.password exists and is not null
+    if (!user.password) {
+        res.status(400).json({message : "Invalid Credentials"})
+        return ;
+    }
+    
+    const isPasswordCorrect= await bcrypt.compare(password , user.password)
+    if(!isPasswordCorrect){
+        res.status(400).json({message : "Invalid Credentials"})
+        return ;
+    }
+
+    // Generate JWT token and send success response
+    const token = generateToken(user._id.toString(), res);
+    res.status(200).json({
+        message: "Login successful",
+        token: token
+    });
+
+   }
+   catch(error : any){
+    console.log("Error in login Controller" , error.message);
+    res.status(500).json({message : "Internal Server Error"})
+   }
 });
 
 app.get("/api/v1/content", (req: Request, res: Response) => {

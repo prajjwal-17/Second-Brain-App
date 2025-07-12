@@ -3,8 +3,8 @@ import mongoose , { Schema, model } from "mongoose";
 mongoose.connect("mongodb://localhost:27017/brainly")
 
 const UserSchema = new Schema({
-    username: { type: String, unique: true },
-    password: String
+    email: { type: String, unique: true, required: true },
+    password: { type: String, required: true }
 });
 
 export const UserModel = model("User", UserSchema);
