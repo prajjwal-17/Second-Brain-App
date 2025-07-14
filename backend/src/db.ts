@@ -1,4 +1,5 @@
 import mongoose , { Schema, model } from "mongoose";
+import { required } from "zod/v4/core/util.cjs";
 
 mongoose.connect("mongodb://localhost:27017/brainly")
 
@@ -18,3 +19,10 @@ const ContentSchema = new Schema({
 })
 
 export const ContentModel = model("Content" , ContentSchema);
+
+const LinkSchema = new Schema({
+    hash : String,
+    userId : {type : mongoose.Types.ObjectId, ref : "User", required : true , unique : true}
+})
+
+export const LinkModel = model("Links", LinkSchema)

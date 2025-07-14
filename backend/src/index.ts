@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import jwt from 'jsonwebtoken'
 import {z} from 'zod'
 import bcrypt from 'bcryptjs'
-import { ContentModel, UserModel } from "./db";
+import { ContentModel, UserModel, LinkModel } from "./db";
 import { generateToken } from './lib/utils';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser'
@@ -168,154 +168,7 @@ app.get("/api/v1/content", protectRoute, async (req: Request, res: Response) => 
 });
 
 
-// PUT endpoint for updating content (title, tags, etc.)
-app.put("/api/v1/content/:contentId", protectRoute, async(req: Request, res: Response) => {
-    const { contentId } = req.params;
-    const updateSchema = z.object({
-        title: z.string().optional(),
-        link: z.string().url().optional(),
-        tags: z.array(z.string()).optional()
-    });
 
-    const parsedBody = updateSchema.safeParse(req.body);
-    
-    if (!parsedBody.success) {
-        res.status(400).json({
-            message: "Validation failed",
-            errors: parsedBody.error.issues
-        });
-        return;
-    }
-
-    try {
-        // Check if content exists and belongs to the user
-        const content = await ContentModel.findOne({
-            _id: contentId,
-            userId: req.user._id
-        });
-
-        if (!content) {
-            res.status(404).json({
-                message: "Content not found or unauthorized"
-            });
-            return;
-        }
-
-        // Update the content
-        const updatedContent = await ContentModel.findByIdAndUpdate(
-            contentId,
-            { $set: parsedBody.data },
-            { new: true, runValidators: true }
-        );
-
-        res.status(200).json({
-            message: "Content updated successfully",
-            content: updatedContent
-        });
-
-    } catch (error: any) {
-        console.log("Error in update content", error.message);
-        res.status(500).json({message: "Internal Server Error"});
-    }
-});
-
-// PUT endpoint for adding tags to content
-app.put("/api/v1/content/:contentId/tags/add", protectRoute, async(req: Request, res: Response) => {
-    const { contentId } = req.params;
-    const tagSchema = z.object({
-        tags: z.array(z.string().min(1)).min(1, "At least one tag is required")
-    });
-
-    const parsedBody = tagSchema.safeParse(req.body);
-    
-    if (!parsedBody.success) {
-        res.status(400).json({
-            message: "Validation failed",
-            errors: parsedBody.error.issues
-        });
-        return;
-    }
-
-    try {
-        // Check if content exists and belongs to the user
-        const content = await ContentModel.findOne({
-            _id: contentId,
-            userId: req.user._id
-        });
-
-        if (!content) {
-            res.status(404).json({
-                message: "Content not found or unauthorized"
-            });
-            return;
-        }
-
-        // Add tags (avoid duplicates)
-        const updatedContent = await ContentModel.findByIdAndUpdate(
-            contentId,
-            { $addToSet: { tags: { $each: parsedBody.data.tags } } },
-            { new: true, runValidators: true }
-        );
-
-        res.status(200).json({
-            message: "Tags added successfully",
-            content: updatedContent
-        });
-
-    } catch (error: any) {
-        console.log("Error in add tags", error.message);
-        res.status(500).json({message: "Internal Server Error"});
-    }
-});
-
-// PUT endpoint for removing tags from content
-app.put("/api/v1/content/:contentId/tags/remove", protectRoute, async(req: Request, res: Response) => {
-    const { contentId } = req.params;
-    const tagSchema = z.object({
-        tags: z.array(z.string().min(1)).min(1, "At least one tag is required")
-    });
-
-    const parsedBody = tagSchema.safeParse(req.body);
-    
-    if (!parsedBody.success) {
-        res.status(400).json({
-            message: "Validation failed",
-            errors: parsedBody.error.issues
-        });
-        return;
-    }
-
-    try {
-        // Check if content exists and belongs to the user
-        const content = await ContentModel.findOne({
-            _id: contentId,
-            userId: req.user._id
-        });
-
-        if (!content) {
-            res.status(404).json({
-                message: "Content not found or unauthorized"
-            });
-            return;
-        }
-
-        // Remove tags
-        const updatedContent = await ContentModel.findByIdAndUpdate(
-            contentId,
-            { $pull: { tags: { $in: parsedBody.data.tags } } },
-            { new: true, runValidators: true }
-        );
-
-        res.status(200).json({
-            message: "Tags removed successfully",
-            content: updatedContent
-        });
-
-    } catch (error: any) {
-        console.log("Error in remove tags", error.message);
-        res.status(500).json({message: "Internal Server Error"});
-    }
-});
 
 app.delete("/api/v1/content/:contentId", protectRoute, async(req: Request, res: Response) => {
     const { contentId } = req.params;
@@ -346,15 +199,65 @@ app.delete("/api/v1/content/:contentId", protectRoute, async(req: Request, res: 
     }
 });
 
-app.post("/api/v1/brain/share", (req: Request, res: Response) => {
-    // TODO: Implement brain sharing
-    res.json({ message: "Brain shared" });
+// Fixed share route
+app.post("/api/v1/brain/share", protectRoute, async (req: Request, res: Response) => {
+    const { share } = req.body;
+    
+    try {
+        if (share) {
+            // Check if a link already exists for the user
+            const existingLink = await LinkModel.findOne({ userId: req.user._id });
+            if (existingLink) {
+                res.json({ hash: existingLink.hash });
+                return;
+            }
+
+            // Generate a new hash for the shareable link
+            const hash = Math.random().toString(36).substring(2, 12); // Generate random 10-char string
+            await LinkModel.create({ userId: req.user._id, hash });
+            res.json({ hash });
+        } else {
+            // Remove the shareable link if share is false
+            await LinkModel.deleteOne({ userId: req.user._id });
+            res.json({ message: "Removed link" });
+        }
+    } catch (error: any) {
+        console.log("Error in share brain", error.message);
+        res.status(500).json({ message: "Internal Server Error" });
+    }
 });
 
-app.get("/api/v1/brain/:shareLink", (req: Request, res: Response) => {
-    // TODO: Implement shared brain retrieval
-    res.json({ message: "Shared brain content" });
+// Fixed get shared brain route
+app.get("/api/v1/brain/:shareLink", async (req: Request, res: Response) => {
+    const hash = req.params.shareLink;
+
+    try {
+        // Find the link using the provided hash
+        const link = await LinkModel.findOne({ hash });
+        if (!link) {
+            res.status(404).json({ message: "Invalid share link" });
+            return;
+        }
+
+        // Fetch content and user details for the shareable link
+        const content = await ContentModel.find({ userId: link.userId });
+        const user = await UserModel.findOne({ _id: link.userId });
+
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+
+        res.json({
+            username: user.email, // Use email since that's what you store, not username
+            content
+        });
+    } catch (error: any) {
+        console.log("Error in get shared brain", error.message);
+        res.status(500).json({ message: "Internal Server Error" });
+    }
 });
+
 
 app.listen(3000, () => {
     console.log("Server running on port 3000");
